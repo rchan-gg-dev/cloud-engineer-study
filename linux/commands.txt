@@ -1,0 +1,4 @@
+Linux command practice
+pwd : 現在いる場所を表示
+ls :　現在いる場所のファイルやディレクトリを表示
+cd : ディレクトリを移動　
