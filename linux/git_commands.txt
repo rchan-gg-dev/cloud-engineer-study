@@ -1,0 +1,5 @@
+Git command practice
+git status : Gitの現在の状態を確認
+git add : 次のcommitに含める変更を登録
+git commit : 変更を履歴として確定
+git push : commitした履歴をGitHubへ送信
