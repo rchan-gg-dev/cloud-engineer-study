@@ -1,0 +1,18 @@
+ps : 現在のプロセスを確認
+ps aux : システム全体のプロセスを確認
+pgrep -a : 名前からプロセスを確認
+top : CPU・メモリ・プロセスをリアルタイム確認
+kill : PIDを指定してプロセスに終了シグナルを送る
+
+& : コマンドをバックグラウンドで実行
+| : 左側の出力を右側のコマンドへ渡す
+grep : 文字列を検索
+
+systemctl status : サービスの状態を確認
+systemctl start : サービスを起動
+systemctl stop : サービスを停止
+sytemctl restart : サービスを再起動
+
+PID : プロセスごとの識別番号
+systemd : Linuxのサービスなどを管理する仕組み
+
