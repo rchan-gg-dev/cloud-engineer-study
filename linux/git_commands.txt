@@ -1,5 +1,16 @@
 Git command practice
-git status : Gitの現在の状態を確認
-git add : 次のcommitに含める変更を登録
-git commit : 変更を履歴として確定
-git push : commitした履歴をGitHubへ送信
+git status
+Gitの現在の状態を確認
+
+git add
+次のcommitに含める変更を登録
+add . : 現在ののディレクトリ以下をcommitに含める 
+
+git commit
+変更を履歴として確定
+-m : commit messegeをその場で指定する
+含めない場合は、その場でエディタが開いて
+コミットメッセージを編集することになる
+
+git push
+commitした履歴をGitHubへ送信
