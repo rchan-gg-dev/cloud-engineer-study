@@ -1,0 +1,205 @@
+Linux Package / Disk Commands
+
+[APT]
+
+apt
+Ubuntu / Debian系Linuxでパッケージを管理するコマンド
+
+sudo apt update
+リポジトリから最新のパッケージ情報を取得
+パッケージそのものは更新しない
+
+apt list --upgradable
+現在アップグレード可能なパッケージを確認
+
+sudo apt upgrade
+インストール済みパッケージを実際にアップグレード
+
+Continue? [Y/n]
+y : アップグレードを実行
+n : 中止
+
+apt search <パッケージ名>
+パッケージを検索
+
+apt show <パッケージ名>
+パッケージの詳細情報を確認
+
+sudo apt install <パッケージ名>
+パッケージをインストール
+
+-y
+確認に自動でYesと回答する
+
+[apt update と apt upgrade]
+
+apt update
+「現在利用できる最新版は何か」という情報を更新
+
+apt upgrade
+取得した情報をもとに、実際にパッケージを更新
+
+[DNF]
+
+dnf
+Amazon Linux / RHEL系などで使用されるパッケージ管理コマンド
+
+dnf check-update
+更新可能なパッケージを確認
+
+sudo dnf update
+パッケージの更新を実行
+
+sudo dnf upgrade
+パッケージのアップグレードを実行
+
+[カーネル更新]
+
+uname -r
+現在動作しているLinuxカーネルのバージョンを確認
+
+カーネルをアップデートしても、
+動作中のカーネルがその場で切り替わるわけではない
+
+基本イメージ：
+
+パッケージ更新
+↓
+新しいカーネルをインストール
+↓
+再起動
+↓
+新しいカーネルで起動
+↓
+uname -r などで確認
+
+[ディスク容量確認]
+
+df
+ファイルシステム全体の使用量・空き容量を確認
+
+df -h
+容量をKB / MB / GBなど読みやすい単位で表示
+
+-h
+human-readable
+人間が読みやすい単位で表示
+
+主に確認する項目：
+
+Size
+ファイルシステム全体の容量
+
+Used
+使用済み容量
+
+Avail
+空き容量
+
+Use%
+使用率
+
+Mounted on
+マウント先
+
+[ディレクトリ使用量]
+
+du
+ファイルやディレクトリが使用している容量を確認
+
+du -sh <ディレクトリ>
+指定したディレクトリの合計使用量を確認
+
+-s
+summary
+合計だけ表示
+
+-h
+human-readable
+読みやすい単位で表示
+
+[df と du の違い]
+
+df
+ファイルシステム全体の容量を見る
+
+du
+ファイルやディレクトリ単位の使用量を見る
+
+例：
+
+ディスク容量不足
+↓
+df -h
+↓
+使用率が高い場所を確認
+↓
+du -sh で容量を使っているディレクトリを調査
+
+[ディスク構成]
+
+lsblk
+Linuxから見えているブロックデバイスを一覧表示
+
+主に確認する項目：
+
+NAME
+デバイス名
+
+SIZE
+容量
+
+TYPE
+disk / part などの種類
+
+MOUNTPOINTS
+マウントされている場所
+
+※ WSLでは通常の物理Linuxサーバーと表示が異なる場合がある
+
+[AWSとの関連]
+
+Fleet Manager
+AWS上のLinuxサーバーへ接続・管理するための仕組み
+
+Fleet Manager自体がパッケージ更新をするわけではない
+
+Fleet Manager等からサーバーへ接続
+↓
+Linux上で sudo dnf update
+↓
+Linuxのパッケージを更新
+
+[重要ポイント]
+
+Ubuntu / Debian系
+
+apt update
+更新情報を取得
+
+apt upgrade
+実際に更新
+
+Amazon Linux / RHEL系
+
+dnf check-update
+更新対象を確認
+
+dnf update
+実際に更新
+
+ディスク確認
+
+df -h
+全体の容量・使用率を確認
+
+du -sh
+特定のファイルやディレクトリの使用量を確認
+
+lsblk
+ディスク構成を確認
+
+実環境では、
+パッケージ更新・カーネル更新・ディスク容量不足はいずれも
+サービス影響につながる可能性があるため、
+事前確認と影響確認を意識する。
