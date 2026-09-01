@@ -1,0 +1,250 @@
+Linux Network Commands
+======================
+
+[ホスト・IP確認]
+
+hostname
+  Linuxマシンのホスト名を表示
+
+ip addr
+  ネットワークインターフェースとIPアドレスを確認
+
+主な見方：
+  lo
+    loopbackインターフェース
+
+  127.0.0.1
+    localhost（自分自身）
+
+  eth0
+    ネットワーク通信に使用するインターフェース
+
+例：
+  inet 172.21.83.181/20
+    IPアドレス：172.21.83.181
+    CIDR：/20
+
+
+[ルーティング]
+
+ip route
+  Linuxのルーティング情報を表示
+
+例：
+  default via 172.21.80.1 dev eth0
+
+  default
+    個別の経路がない通信で使用するルート
+
+  via 172.21.80.1
+    デフォルトゲートウェイ
+
+  dev eth0
+    通信に使用するインターフェース
+
+
+[通信確認]
+
+ping <IPアドレス / ホスト名>
+  ICMPを使って相手との通信到達性を確認
+
+-c 回数
+  指定した回数だけpingを送信
+
+例：
+  ping -c 4 8.8.8.8
+  ping -c 4 google.com
+
+注意：
+  pingが失敗しても通信不能とは限らない
+  相手側がICMPへの応答を拒否している場合がある
+
+
+[DNS]
+
+systemd-resolved
+  Linux側でDNS名前解決を担当するサービス
+
+resolvectl status
+  現在使用しているDNSサーバーなどを確認
+
+resolvectl query <ドメイン名>
+  DNS名前解決を実行して結果を確認
+
+例：
+  resolvectl query google.com
+
+DNSの標準ポート：
+  53
+
+DNS名前解決の基本イメージ：
+
+  Linux
+    ↓
+  ローカルDNSリゾルバ
+    ↓
+  再帰DNSリゾルバ
+    ↓
+  必要に応じて
+  Root DNS
+    ↓
+  TLD DNS
+    ↓
+  権威DNS
+    ↓
+  IPアドレスを取得
+
+systemd-resolved自身が
+Root → TLD → 権威DNSを直接すべて問い合わせるとは限らず、
+通常は上位の再帰DNSリゾルバへ問い合わせる。
+
+
+[ポート・ソケット確認]
+
+ss
+  ソケットやネットワーク接続の状態を確認
+
+ss -tuln
+  TCP / UDPの待受状態を確認
+
+  -t
+    TCP
+
+  -u
+    UDP
+
+  -l
+    LISTEN中のものを表示
+
+  -n
+    ポート番号などを数値のまま表示
+
+sudo ss -tulnp
+  使用しているプロセスも表示
+
+  -p
+    ソケットを使用しているプロセスを表示
+
+例：
+  sudo ss -tlnp | grep ':8000'
+    TCP 8000番ポートを待ち受けているプロセスを確認
+
+
+[待受アドレス]
+
+127.0.0.1:8000
+  localhostだけで待受
+  基本的に自分自身からのみ接続可能
+
+0.0.0.0:8000
+  全IPv4インターフェースで待受
+
+
+[プロセス調査]
+
+ps -fp <PID>
+  指定したPIDの詳細情報を表示
+
+  -p
+    PIDを指定
+
+  -f
+    UID / PID / PPID / CMDなどを詳しく表示
+
+PPID
+  Parent Process ID
+  そのプロセスを起動した親プロセスのPID
+
+pgrep -af <文字列>
+  プロセスを名前・コマンド内容から検索
+
+  -a
+    コマンド内容も表示
+
+  -f
+    コマンドライン全体を検索対象にする
+
+
+[HTTP / HTTPS確認]
+
+curl <URL>
+  HTTP / HTTPSなどで通信し、レスポンス本文を取得
+
+curl -I <URL>
+  HTTPレスポンスヘッダーを確認
+
+  -I
+    本文を取得せずヘッダーを確認
+
+例：
+  curl -I https://www.google.com
+
+HTTP 200
+  リクエストが正常に処理されたことを示す代表的なステータス
+
+
+[簡易Webサーバー]
+
+python3 -m http.server 8000 --bind 127.0.0.1 &
+  Pythonの簡易WebサーバーをTCP 8000番で起動
+
+  -m http.server
+    Python標準のHTTPサーバーモジュールを使用
+
+  8000
+    待受ポート
+
+  --bind 127.0.0.1
+    localhostだけで待受
+
+  &
+    バックグラウンド実行
+
+
+[Web通信の切り分け]
+
+Webサーバー起動
+  ↓
+ssでLISTEN確認
+  ↓
+curlでHTTP応答確認
+  ↓
+pgrep / psでプロセス確認
+  ↓
+killで停止
+  ↓
+ssでLISTENが消えたことを確認
+  ↓
+curlで接続失敗を確認
+
+Connection refused / Could not connect
+  対象ポートで待ち受けているサービスがない可能性などを確認する
+
+基本的な障害調査：
+
+  IPは正しい？
+    → ip addr
+
+  ルートはある？
+    → ip route
+
+  相手まで通信できる？
+    → ping
+
+  DNSは名前解決できる？
+    → resolvectl
+
+  ポートはLISTENしている？
+    → ss
+
+  HTTP / HTTPSは応答する？
+    → curl
+
+  プロセスは動いている？
+    → ps / pgrep
+
+  サービスは正常？
+    → systemctl status
+
+  ログは？
+    → journalctl
