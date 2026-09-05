@@ -1,0 +1,216 @@
+Linux Shell Commands
+====================
+
+[環境変数]
+
+env
+  現在の環境変数一覧を表示
+
+echo "$HOME"
+  HOME環境変数の値を表示
+
+echo "$PATH"
+  PATH環境変数を表示
+
+環境変数の参照：
+  $変数名
+
+例：
+  echo "$HOME"
+
+シングルクォート：
+  '$HOME'
+  変数展開せず文字列として扱う
+
+ダブルクォート：
+  "$HOME"
+  変数を展開する
+
+
+[PATH]
+
+PATH
+  コマンドを検索するディレクトリ一覧
+  : で複数のディレクトリを区切る
+
+例：
+  /home/rchan/bin:/usr/local/bin:/usr/bin:/bin
+
+左側から順番にコマンドを検索する
+
+command -v <コマンド>
+  実際に使用されるコマンドの場所を確認
+
+例：
+  command -v aws
+  command -v terraform
+  command -v python3
+
+which <コマンド>
+  コマンドの場所を確認
+
+export PATH="$HOME/bin:$PATH"
+  ~/binをPATHの先頭に追加
+
+例：
+  元のPATH
+    /usr/local/bin:/usr/bin:/bin
+
+  追加後
+    /home/rchan/bin:/usr/local/bin:/usr/bin:/bin
+
+PATHの先頭に追加すると
+同名コマンドがある場合は先に検索される
+
+
+[export]
+
+変数="値"
+  現在のシェルで変数を作成
+
+export 変数
+  変数を子プロセスにも引き継がせる
+
+例：
+  export STUDY="cloud-engineer"
+
+env | grep STUDY
+  環境変数に登録されたことを確認
+
+通常の変数：
+  現在のシェルのみ
+
+exportした環境変数：
+  子プロセスにも引き継がれる
+
+~/.bashrc
+  bash起動時に読み込まれる代表的な設定ファイル
+
+
+[find]
+
+find
+  ファイルやディレクトリそのものを検索
+
+基本：
+  find <検索開始場所> <条件>
+
+find . -name "*ssh*"
+  現在地以下から名前にsshを含むものを検索
+
+find . -type f -name "*.txt"
+  現在地以下から.txtファイルを検索
+
+-type f
+  ファイル
+
+-type d
+  ディレクトリ
+
+-name
+  名前で検索
+
+-iname
+  大文字小文字を無視して名前を検索
+
+findは指定した検索開始場所以下を検索する
+親ディレクトリへ自動ではさかのぼらない
+
+
+[grep]
+
+grep
+  ファイルの中身から文字列を検索
+
+grep "文字列" <ファイル>
+  指定したファイル内を検索
+
+grep -n "文字列" <ファイル>
+  行番号付きで検索
+
+grep -i "文字列" <ファイル>
+  大文字小文字を無視
+
+grep -R "文字列" .
+  現在地以下を再帰的に検索
+
+grep -Rni "文字列" .
+  再帰検索 + 行番号 + 大文字小文字無視
+
+grep -Rn --include="*.txt" "systemctl" .
+  現在地以下の.txtファイルだけを対象に検索
+
+find：
+  ファイル名・場所・種類などから探す
+
+grep：
+  ファイルの中身を探す
+
+
+[標準入出力]
+
+stdin
+  標準入力
+  番号：0
+
+stdout
+  標準出力
+  番号：1
+
+stderr
+  標準エラー
+  番号：2
+
+
+[リダイレクト]
+
+>
+  標準出力をファイルへ出力
+  既存内容は上書き
+
+>>
+  標準出力をファイルへ追記
+
+2>
+  標準エラーをファイルへ出力
+
+例：
+  ls commands.txt > stdout.log
+
+  cat no_such_file.txt 2> stderr.log
+
+正常出力とエラーを分ける：
+
+  ls commands.txt no_such_file.txt > stdout.log 2> stderr.log
+
+
+[パイプ]
+
+|
+  左側コマンドの標準出力を
+  右側コマンドの標準入力へ渡す
+
+例：
+  ps aux | grep ssh
+
+
+[終了ステータス]
+
+$?
+  直前に実行したコマンドの終了ステータス
+
+確認：
+  echo $?
+
+0
+  成功
+
+0以外
+  失敗
+
+例：
+  ls commands.txt
+  echo $?
+
+シェルスクリプトやCI/CDでは
+終了ステータスを使って成功・失敗を判断する

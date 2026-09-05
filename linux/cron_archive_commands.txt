@@ -1,0 +1,121 @@
+Linux Cron / Archive Commands
+=============================
+
+[cron]
+
+cron
+  コマンドやスクリプトを指定時刻・間隔で自動実行する仕組み
+
+crontab -l
+  現在のユーザーのcron設定を表示
+
+crontab -e
+  現在のユーザーのcron設定を編集
+
+cronの基本形式：
+
+  分 時 日 月 曜日 コマンド
+
+例：
+  30 2 * * * /home/rchan/backup.sh
+
+  毎日2:30にbackup.shを実行
+
+*
+  すべて
+
+* * * * *
+  毎分実行
+
+
+[cron実習]
+
+* * * * * date >> "$HOME/cron_test.log"
+
+  毎分dateを実行し、
+  cron_test.logへ追記
+
+cron確認：
+
+  systemctl status cron --no-pager
+
+cronログ確認：
+
+  journalctl -u cron
+
+cronで手動実行時と挙動が違う場合は
+PATHなど実行環境の違いも確認する
+
+crontab -r
+  ユーザーのcrontabをすべて削除
+  誤操作に注意
+
+
+[tar]
+
+tar
+  複数のファイル・ディレクトリを
+  1つのアーカイブにまとめる
+
+.tar
+  tarでまとめたもの
+  gzip圧縮はされていない
+
+.tar.gz
+  tarでまとめた後、gzip圧縮したもの
+
+
+[tarオプション]
+
+-c
+  create
+  アーカイブを作成
+
+-x
+  extract
+  アーカイブを展開
+
+-z
+  gzipを使用
+
+-v
+  verbose
+  処理対象を表示
+
+-f
+  file
+  アーカイブファイルを指定
+
+
+[tar作成]
+
+tar -cvf backup.tar backup
+  backupディレクトリをtarにまとめる
+
+tar -czvf backup.tar.gz backup
+  backupディレクトリをtarにまとめてgzip圧縮
+
+
+[tar展開]
+
+tar -xzvf backup.tar.gz
+  tar.gzを展開
+
+tar -xzvf backup.tar.gz -C <展開先>
+  指定したディレクトリへ展開
+
+
+[gzip]
+
+gzip backup.tar
+  既存のbackup.tarをgzip圧縮
+
+結果：
+  backup.tar.gz
+
+gzip -k backup.tar
+  元のbackup.tarを残してgzip圧縮
+
+注意：
+  tarの-zはZIP形式ではない
+  gzip圧縮を使用する指定

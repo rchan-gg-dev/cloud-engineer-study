@@ -1,0 +1,1 @@
+cat: no_such_file.txt: No such file or directory
