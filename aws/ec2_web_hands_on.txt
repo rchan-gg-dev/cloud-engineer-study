@@ -1,0 +1,166 @@
+AWS EC2 Web Server Hands-on
+===========================
+
+■ 構成
+
+VPC
+cloud-study-vpc
+10.0.0.0/16
+
+Public Subnet
+cloud-study-public-a : 10.0.1.0/24
+cloud-study-public-b : 10.0.2.0/24
+
+Private Subnet
+cloud-study-private-a : 10.0.11.0/24
+cloud-study-private-b : 10.0.12.0/24
+
+Internet Gateway
+cloud-study-igw
+
+Public Route Table
+10.0.0.0/16 -> local
+0.0.0.0/0 -> Internet Gateway
+
+Private Route Table
+10.0.0.0/16 -> local
+
+※ Private Subnetにはまだインターネット向けルートを設定していない。
+
+
+■ Security Group
+
+EC2用Security Groupを作成。
+
+Inbound
+SSH  TCP/22 -> My IP
+HTTP TCP/80 -> My IP
+
+Outbound
+All Traffic -> 0.0.0.0/0
+
+Security GroupはStateful。
+
+
+■ EC2
+
+Amazon Linux 2023
+t3.micro
+Public Subnetに配置
+Public IPv4自動割り当て有効
+8 GiB gp3
+
+SSH接続:
+
+ssh -i ~/.ssh/cloud-study-key.pem ec2-user@<Public-IP>
+
+秘密鍵は公開しない。
+.pemファイルをGitHubへcommitしない。
+
+
+■ Apache
+
+インストール:
+
+sudo dnf install -y httpd
+
+状態確認:
+
+systemctl status httpd --no-pager
+
+起動:
+
+sudo systemctl start httpd
+
+TCP/80確認:
+
+sudo ss -tlnp | grep ':80'
+
+
+■ HTTP確認
+
+最初の確認:
+
+curl -I http://127.0.0.1
+
+結果:
+HTTP/1.1 403 Forbidden
+
+httpdは起動しておりTCP/80もLISTENしていたため、
+通信失敗ではなくHTTPレベルの問題と判断。
+
+/var/www/html を確認するとindex.htmlが存在しなかった。
+
+ls -la /var/www/html
+
+
+index.html作成:
+
+echo '<h1>Cloud Study EC2</h1><p>Hello from Amazon Linux 2023</p>' \
+| sudo tee /var/www/html/index.html
+
+
+再確認:
+
+curl -I http://127.0.0.1
+
+結果:
+HTTP/1.1 200 OK
+
+curl http://127.0.0.1
+
+HTML本文も取得できた。
+
+
+■ 外部アクセス
+
+WindowsブラウザからEC2のPublic IPv4へHTTPアクセス。
+
+Cloud Study EC2
+Hello from Amazon Linux 2023
+
+が表示された。
+
+通信経路:
+
+PC
+↓
+Internet
+↓
+Internet Gateway
+↓
+Public Route Table
+↓
+Security Group
+↓
+EC2
+↓
+Apache :80
+↓
+index.html
+
+
+■ トラブルシューティング
+
+403 Forbidden
+→ WebサーバーまでHTTP通信は到達している。
+→ 今回はindex.htmlが存在しなかったことが原因。
+
+Connection refused
+→ 対象ポートでサービスがLISTENしていない可能性を確認。
+
+Timeout
+→ Security Group、Route Table、IGW、IP、NACLなど
+   ネットワーク経路を確認。
+
+
+■ 終了時
+
+ハンズオン終了後にEC2をStop。
+
+EC2停止中:
+・EC2のコンピュート料金は停止
+・EBS料金は継続
+・自動割り当てPublic IPv4は解放される
+
+不要になった段階でEC2をTerminateする。
