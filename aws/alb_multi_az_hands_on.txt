@@ -1,0 +1,248 @@
+AWS ALB / Multi-AZ Hands-on
+===========================
+
+■ 今回の目的
+
+・Private SubnetのEC2をALB経由で公開する
+・ALBによる負荷分散を確認する
+・複数AZにEC2を配置する
+・Health Checkによる障害切り離しを確認する
+
+
+■ 構成
+
+VPC
+10.0.0.0/16
+
+Public Subnet A
+10.0.1.0/24
+
+Public Subnet B
+10.0.2.0/24
+
+Private Subnet A
+10.0.11.0/24
+
+Private Subnet B
+10.0.12.0/24
+
+
+Public EC2
+Private IP: 10.0.1.13
+用途: Private EC2へのSSH踏み台
+
+Private EC2 A
+Private IP: 10.0.11.191
+
+Private EC2 B
+Private IP: 10.0.12.77
+
+
+■ SSH
+
+~/.ssh/config に踏み台設定を作成。
+
+Public EC2をProxyJumpとして利用し、
+Private EC2へ直接秘密鍵を配置せずSSH接続。
+
+ssh cloud-private-a
+ssh cloud-private-b
+
+
+■ NAT Gateway
+
+Private EC2にはPublic IPv4を付与していない。
+
+NAT Gateway作成前:
+
+curl -4 -I --connect-timeout 5 https://aws.amazon.com
+
+→ Timeout
+
+
+Private Route Table:
+
+0.0.0.0/0
+→ NAT Gateway
+
+を追加後:
+
+curl -4 -I --connect-timeout 5 https://aws.amazon.com
+
+→ HTTP/2 200
+
+
+Private EC2はPublic IPv4なしでも、
+NAT Gateway経由で外向きインターネット通信が可能。
+
+確認後、
+NAT Gateway削除
+Elastic IP解放
+
+
+■ Private EC2 Web Server
+
+Apacheを使用。
+
+sudo dnf install -y httpd
+
+sudo systemctl enable --now httpd
+
+sudo ss -tlnp | grep ':80'
+
+curl http://127.0.0.1
+
+
+■ Security Group
+
+ALB SG
+
+Inbound:
+HTTP TCP/80
+Source: My IP
+
+
+Private EC2 SG
+
+SSH TCP/22
+Source: Public EC2 SG
+
+HTTP TCP/80
+Source: ALB SG
+
+
+Private EC2のHTTPポートを
+0.0.0.0/0には公開しない。
+
+ALBからの通信だけ許可する。
+
+
+■ Target Group
+
+Target:
+Private EC2 A
+Private EC2 B
+
+Protocol:
+HTTP
+
+Port:
+80
+
+Health Check:
+HTTP /
+
+両方Healthyを確認。
+
+
+■ ALB
+
+Internet-facing
+IPv4
+
+Public Subnet A
+Public Subnet B
+
+Listener:
+HTTP :80
+
+Default Action:
+cloud-study-web-tgへ転送
+
+
+■ Multi-AZ確認
+
+Private EC2 A
+Availability Zone A
+
+Private EC2 B
+Availability Zone B
+
+それぞれ異なるページを表示することで、
+ALBがA/Bへ通信を振り分けていることを確認。
+
+
+■ 障害試験
+
+Private EC2 Aで実施:
+
+sudo systemctl stop httpd
+
+
+結果:
+
+最初は一時的に
+502 Bad Gateway
+
+その後Health Check失敗により、
+
+EC2 A → Unhealthy
+EC2 B → Healthy
+
+となった。
+
+
+ALBはUnhealthyなAを転送先から外し、
+BのみでWebサービスを継続した。
+
+
+■ 復旧試験
+
+Private EC2 A:
+
+sudo systemctl start httpd
+
+systemctl is-active httpd
+
+
+Health Checkが成功すると、
+
+EC2 A → Healthy
+EC2 B → Healthy
+
+へ復旧。
+
+ブラウザからA/B両方が
+再び表示されることを確認。
+
+
+■ 学んだこと
+
+ALBは異常なEC2そのものを修復するわけではない。
+
+Health Checkにより
+異常なターゲットを切り離し、
+復旧後に再び転送対象へ戻す。
+
+障害発生から切り離しまでには
+Health Checkの判定時間があるため、
+一時的に502が発生する場合がある。
+
+
+■ AMI
+
+Private EC2 AからAMIを作成し、
+Private EC2 Bを複製。
+
+AMI作成時にEBS Snapshotも作成される。
+
+演習終了後:
+
+AMI登録解除
+Snapshot削除
+
+
+■ 終了時の料金対策
+
+削除:
+・ALB
+・不要なTarget Group
+・Private EC2 B
+・AMI
+・Snapshot
+・NAT Gateway
+・Elastic IP
+
+停止:
+・Public EC2
+・Private EC2 A
