@@ -22,3 +22,20 @@ resource "aws_instance" "public" {
     Name = "terraform-study-public-ec2"
   }
 }
+
+resource "aws_instance" "private" {
+  ami           = data.aws_ssm_parameter.al2023_ami.value
+  instance_type = "t3.micro"
+
+  subnet_id = aws_subnet.private_a.id
+  vpc_security_group_ids = [
+    aws_security_group.private_ec2.id
+  ]
+
+  associate_public_ip_address = false
+  key_name                    = "cloud-study-key"
+
+  tags = {
+    Name = "terraform-study-private-ec2"
+  }
+}

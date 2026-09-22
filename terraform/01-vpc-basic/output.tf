@@ -13,3 +13,13 @@ output "public_ec2_private_ip" {
   description = "Private IPv4 address of the public EC2"
   value       = aws_instance.public.private_ip
 }
+
+output "private_ec2_instance_id" {
+  description = "Instance ID of the private EC2"
+  value       = aws_instance.private.id
+}
+
+output "private_ec2_private_ip" {
+  description = "Private IPv4 address of the private EC2"
+  value       = aws_instance.private.private_ip
+}

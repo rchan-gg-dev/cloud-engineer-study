@@ -35,3 +35,32 @@ resource "aws_vpc_security_group_egress_rule" "public_ec2_all" {
   cidr_ipv4   = "0.0.0.0/0"
   ip_protocol = "-1"
 }
+
+resource "aws_security_group" "private_ec2" {
+  name        = "terraform-study-private-ec2-sg"
+  description = "Security group for private EC2"
+  vpc_id      = aws_vpc.main.id
+
+  tags = {
+    Name = "terraform-study-private-ec2-sg"
+  }
+}
+
+resource "aws_vpc_security_group_ingress_rule" "private_ec2_ssh" {
+  security_group_id = aws_security_group.private_ec2.id
+
+  description = "Allow SSH from public EC2"
+  from_port   = 22
+  to_port     = 22
+  ip_protocol = "tcp"
+
+  referenced_security_group_id = aws_security_group.public_ec2.id
+}
+
+resource "aws_vpc_security_group_egress_rule" "private_ec2_all" {
+  security_group_id = aws_security_group.private_ec2.id
+
+  description = "Allow all outbound traffic"
+  cidr_ipv4   = "0.0.0.0/0"
+  ip_protocol = "-1"
+}
