@@ -15,6 +15,8 @@ resource "aws_instance" "public" {
 
   key_name = "cloud-study-key"
 
+  iam_instance_profile = aws_iam_instance_profile.ssm.name
+
   user_data                   = file("${path.module}/user_data.sh")
   user_data_replace_on_change = true
 
@@ -33,7 +35,10 @@ resource "aws_instance" "private" {
   ]
 
   associate_public_ip_address = false
-  key_name                    = "cloud-study-key"
+
+  key_name = "cloud-study-key"
+
+  iam_instance_profile = aws_iam_instance_profile.ssm.name
 
   tags = {
     Name = "terraform-study-private-ec2"

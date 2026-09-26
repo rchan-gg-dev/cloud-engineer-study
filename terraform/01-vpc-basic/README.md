@@ -1,110 +1,156 @@
 # Terraform AWS VPC Basic
 
 ## 1. 目的
-Terraformを利用して、AWS上にVPC、Subnet、Route Table、
-Security Group、EC2を構成する。
+Terraformを利用して、AWS上にVPC、Subnet、Route Table、Security Group、EC2を構成し、
+AWSネットワークとInfrastructure as Codeの基本を学習する。
+
+また、Private EC2への管理接続について、
+踏み台サーバ経由のSSH接続からAWS Systems Manager Session Managerへ移行し、
+開放せずに管理できる環境を構築する。
+
+---
 
 Public / Private Subnetの役割や通信経路を理解し、
 TerraformによってAWS環境を再現できることを目的とする。
 
 ## 2. 構成概要
-VPC内にPublic SubnetとPrivate Subnetを作成し、
-2つのAvabilitity ZoneにそれぞれSubnetを配置する。
 
-現在はPublic Subnet AにPublic EC2を1台、
-Private Subnet AにPrivate EC2を1台配置している。
+- Region: ap-southeast-2
+- VPC: 10.10.0.0/16
+- Public Subnet A: 10.10.1.0/24
+- Public Subnet B: 10.10.2.0/24
+- Private Subnet A: 10.10.11.0/24
+- Private Subnet B: 10.10.12.0/24
+- Public EC2: Public Subnet A
+- Private EC2: Private Subnet A
+- SSM Interface VPC Endpoint: Private Subnet A
+- SSMMessages Interface VPC Endpoint: Private Subnet A
 
-Public EC2にはPublic IPを付与し、
-HTTP 80を0.0.0.0/0から許可、
-SSH 22を自宅のグローバルIP/32から許可する。
-
-Private EC2にはPublic IPを付与しない。
-
-Private EC2のSSH 22は、
-Public EC2に関連付けられたSecurity Groupを
-送信元として許可する。
-
-Private EC2へはPublic EC2を踏み台としてSSH接続する。
-
-Public / Private Subnet Bは、
-今後の冗長構成を想定して作成している。
+Public / Private Subnetは2AZ分作成しているが、
+現在EC2とVPC Endpointを配置しているのはAZ-aのみ。
 
 ## 3. ネットワーク設計
-■VPC
-CIDR：10.10.0.0/16　
-用途：学習用VPC 
 
-■Subnet
-◇Public Subnet A
-CIDR：10.10.1.0/24
-用途：Public EC2配置用
+### VPC / Subnet
 
-◇Public Subnet B
-CIDR：10.10.2.0/24
-用途：将来の冗長構成用
+| 種別 | CIDR | Availability Zone | 用途 |
+|---|---|---|---|
+| VPC | 10.10.0.0/16 | - | 学習用VPC |
+| Public Subnet A | 10.10.1.0/24 | ap-southeast-2a | Public EC2配置用 |
+| Public Subnet B | 10.10.2.0/24 | ap-southeast-2b | 将来の冗長構成用 |
+| Private Subnet A | 10.10.11.0/24 | ap-southeast-2a | Private EC2 / VPC Endpoint配置用 |
+| Private Subnet B | 10.10.12.0/24 | ap-southeast-2b | 将来の冗長構成用 |
 
-◇Private Subnet A
-CIDR：10.10.11.0/24
-用途：Private EC2配置用
+### Route Table
 
-◇Private Subnet B
-CIDR：10.10.12.0/24
-用途：Private EC2配置用
+| Route Table | Destination | Target | 用途 |
+|---|---|---|---|
+| Public | 10.10.0.0/16 | local | VPC内通信 |
+| Public | 0.0.0.0/0 | Internet Gateway | Internet通信 |
+| Private | 10.10.0.0/16 | local | VPC内通信 |
 
-■Route Table
-◇Public
-CIDR：0.0.0.0/0
-接続先：Internet Gateway
-
-◇Private
-CIDR：10.10.0.0/16
-接続先：local
-
-・Private Route Tableには0.0.0.0/0がないため、
-Private EC2はInternetへ直接通信できない。
+Private Route TableにはInternet向けの`0.0.0.0/0` Routeを設定していないため、
+Private EC2からInternetへ直接通信することはできない。
 
 ## 4. セキュリティ設計
 
+### Public EC2 Security Group
+```
+Ingress:
+HTTP TCP/80 0.0.0.0/0
+SSH TCP/22 自宅のグローバルIP/32
+```
+```
+Egress:
+All traffic 0.0.0.0/0
+```
+
+### Private EC2 Security Group
+```
+Ingress:
+Private EC2へのSSH Ingressは設定しない。
+```
+当初はPublic EC2を踏み台としてTCP/22を許可していたが、
+Session Managerによる接続に変更。
+接続を確認後、削除した。
+
+```
+Egress:
+All traffic 0.0.0.0/0
+```
+※ Egressを許可していてもRoute TableにInternetへの経路がないため、
+Private EC2がInternetへ通信できるわけではない。
+
+### SSM Endpoint Security Group
+```
+Ingress:
+HTTPS TCP/443
+Source: Private EC2 Security Group
+```
+Private EC2からVPC EndpointへのHTTPS通信のみ許可する。
+
+## 5. Systems Manager構成
+EC2にIAM Roleを付与し、
+AWS管理ポリシー`AmazonSSMManagedInstanceCore `をアタッチする。
+
+Private EC2はInternet経由ではSystems Managerへ接続できないため、
+以下のInterface VPC Endpointを作成した。
+```
+com.amazonaws.ap-southeast-2.ssm
+com.amazonaws.ap-southeast-2.ssmmessages
+```
+
+VPC EndpointではPrivate DNSを有効化している。
+
+```hcl
+private_dns_enabled = true
+```
+
+VPC側でもDNSを有効化する。
+
+```hcl
+enable_dns_support = true
+enable_dns_hostnames = true
+```
+
+これにより、
+
+```
+ssm.ap-southeast-2.amazonaws.com
+```
+
+などの通常のAWSサービス名が、
+VPC EndpointのPrivate IPへ名前解決される。
+
+## 6. Terraformで管理しているリソース
+```
+VPC
+Subnet
+Internet Gateway
+Route Table
+Route Table Association
+Security Group
+Security Group Rule
+EC2
+IAM Role
+IAM Instance Profile
+IAM Policy Attachment
+SSM Interface VPC Endpoint
+SSMMessages Interface VPC Endpoint
+```
+
+AMIはSystems Manager Parameter StoreからAmazon Linux 2023の最新のAMI IDを取得する。
+
+## 7. 接続方法
+
 ### Public EC2
+SSHで接続可能
 
-HTTP 80  
-Source: 0.0.0.0/0
-
-SSH 22  
-Source: 自宅のグローバルIP /32
-
-### Private EC2
-
-SSH 22  
-Source: Public EC2に関連付けられたSecurity Group
-
-Private EC2へのSSHは、
-Public EC2のPrivate IPを直接指定するのではなく、
-Public EC2に関連付けられたSecurity Groupを送信元として許可する。
-
-これにより、Public EC2のPrivate IPが変更された場合でも
-Security Groupのルールを変更する必要がなく、
-EC2の役割単位でアクセス制御を行える。
-
-## 5. Terraformで管理しているリソース
-| 種別 | Terraform上の名前 | AWS上の名前 / 用途 |
-|---|---|---|
-| VPC | aws_vpc.main | terraform-study-vpc |
-| Public Subnet A | aws_subnet.public_a | Public EC2配置用 |
-| Public Subnet B | aws_subnet.public_b | 将来の冗長構成用 |
-| Private Subnet A | aws_subnet.private_a | Private EC2配置用 |
-| Private Subnet B | aws_subnet.private_b | 将来の冗長構成用 |
-| Internet Gateway | aws_internet_gateway.main | VPCのInternet接続用 |
-| Public Route Table | aws_route_table.public | 0.0.0.0/0 → IGW |
-| Private Route Table | aws_route_table.private | local通信のみ |
-| Public EC2 SG | aws_security_group.public_ec2 | Public EC2用 |
-| Private EC2 SG | aws_security_group.private_ec2 | Private EC2用 |
-| Public EC2 | aws_instance.public | terraform-study-public-ec2 |
-| Private EC2 | aws_instance.private | terraform-study-private-ec2 |
-
-## 6. 接続方法
-
-### Public EC2へのSSH接続
+```
+Local PC
+↓ SSH
+Public EC2
+```
 
 `terraform output`からPublic IPを取得する。
 
@@ -117,26 +163,46 @@ Public EC2へSSH接続する。
 ```bash
 ssh -i ~/.ssh/cloud-study-key.pem ec2-user@"$PUBLIC_IP"
 ```
-### Private EC2へのSSH接続
+### Private EC2
+AWS Systems Manager Session Managerを使用する。
 
-`terraform output`からPublic EC2のPublic IPと、
-Private EC2のPrivate IPを取得する。
-
-```bash
-PUBLIC_IP=$(terraform output -raw public_ec2_public_ip)
-PRIVATE_IP=$(terraform output -raw private_ec2_private_ip)
+```Bash
+aws ssm start-session \
+--target "$PRIVATE_INSTANCE_ID"
 ```
 
-```bash
-ssh \
-  -i ~/.ssh/cloud-study-key.pem \
-  -o ProxyCommand="ssh -i ~/.ssh/cloud-study-key.pem -W %h:%p ec2-user@$PUBLIC_IP" \
-  ec2-user@"$PRIVATE_IP"
-```
-Private EC2にはPublic IPを付与していないため、
-インターネットから直接SSH接続することはできない。
+接続後、以下コマンドを実行。
 
-## 7. 動作確認
+```Bash
+whoami
+hostname
+ip -br addr
+```
+
+確認結果
+
+```
+User: ssm-user
+Public IP: なし
+Private IP:10.10.11.x
+```
+
+接続経路
+```
+Local PC
+↓
+AWS Systems Manager
+↓
+SSM / SSMMessages VPC Endpoint
+↓
+Private EC2
+```
+
+Public EC2を踏み台として、Private EC2へSSH接続する必要がなくなり、
+ポート22を解放する必要がないためよりセキュアな通信が可能。
+
+
+## 8. 動作確認
 ### Terraform
 以下を実行し、Terraform Configurationに問題がないことを確認した。
 
@@ -167,30 +233,34 @@ curl -I http://127.0.0.1
 ```
 
 ### Private EC2
-Private EC2にPublic IPが付与されていないことを確認した。
-
-Public EC2を踏み台として、PrivateEC2へSSH接続できることを確認した。
-
-Private EC2上で以下を確認した。
-```bash
-hostname
-ip -br addr
-ip route
+- SSM Managed Node確認
+```Bash
+aws ssm describe-instance-information \
+  --query 'InstanceInformationList[].{InstanceId:InstanceId,PingStatus:PingStatus}' \
+  --output table
 ```
-Private Route TableにはInternet向けの
-`0.0.0.0/0` Routeが存在しないため、
-Private EC2からInternetへ通信できないことを確認した。
-```bash
+
+Public EC2 / Private EC2の両方が以下になることを確認。
+```
+PingStatus: Online
+```
+
+- Private DNS確認
+Private EC2から:
+```Bash
+getent ahostsv4 ssm.ap-southeast-2.amazonaws.com
+getent ahostsv4 ssmmessages.ap-southeast-2.amazonaws.com
+```
+
+VPC EndpointのPrivate IPへ名前解決されることを確認。
+- Internet接続確認
+```
 curl -I --connect-timeout 5 https://example.com
 ```
-結果 :
-```
-Connection timed out
-```
-AWS CLIでもPrivate Route Tableを確認し、
-`10.10.0.0/16 -> local`のみ存在することを確認した。
 
-## 8. トラブルシューティング
+Private EC2からInternetへは接続できないことを確認。
+
+## 9. トラブルシューティング
 
 ### cloud-init statusでPermission denied
 一般ユーザーで以下を実行したところ、
@@ -224,10 +294,10 @@ ProxyCommandでPublic EC2側にも使用する秘密鍵を明示することで�
 ssh \
   -i ~/.ssh/cloud-study-key.pem \
   -o ProxyCommand="ssh -i ~/.ssh/cloud-study-key.pem -W %h:%p ec2-user@$PUBLIC_IP" \
-  ec2-user@"$PRIVATE_IP
+  ec2-user@"$PRIVATE_IP"
 ```
 
-## 9. 学んだこと
+## 10. 学んだこと
 - Terraformの variable、data、resource、output の役割
 - TerraformによるVPC / Subnet / Route Table / Security Group / EC2の構築
 - Terraform Resource間の参照による依存関係
@@ -238,7 +308,17 @@ ssh \
 - LinuxのRouting TableとAWS VPC Route Tableの違い
 - terraform plan で意図しない変更や削除を確認する重要性
 - AWS CLIを利用した実環境の確認
+- Terraformのplanで意図した変更を確認してからapplyする重要性
+- validate成功だけではAWS上で正常に構築できるとは限らない
+- Terraform StateとAWS実環境には差分が発生することがある
+- Security Groupは通信の許可を行うが通信経路自体は作らない
+- Interface VPC EndpointにはSubnet内のPrivate IPを持つENIが作成される
+- Private DNSを利用するとAWSサービス名をVPC Endpointへ名前解決できる
+- SSM Agentが起動していてもネットワーク経路がなければSystems Managerへ登録できない
+- ログではERRORだけでなく caused by や timeout など原因部分まで確認する
+- Session Managerを利用することでPrivate EC2へのSSH Ingressを削除できる
+- 踏み台サーバーを使用せずPrivate EC2を管理できる
 
-## 10. 構成図
+## 11. 構成図
 
 ![AWS Architecture](images/architecture.png)
