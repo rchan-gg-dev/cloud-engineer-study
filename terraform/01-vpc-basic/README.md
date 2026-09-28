@@ -260,6 +260,52 @@ curl -I --connect-timeout 5 https://example.com
 
 Private EC2からInternetへは接続できないことを確認。
 
+### CloudWatch
+
+Public EC2の`CPUUtilization`をCloudWathc Metricsで確認した。
+
+```bash
+aws cloudwatch get-metric-statistics \
+  --namespace AWS/EC2 \
+  --metric-name CPUUtilization \
+  --dimensions Name=InstanceId,Value="$PUBLIC_INSTANCE_ID" \
+  --statistics Average \
+  --period 300 \
+  --start-time "$START_TIME" \
+  --end-time "$END_TIME"
+```
+TerraformでPublic EC2のCPU使用率を監視するCloudWatch Alarmを作成した。
+
+監視条件:
+- Metric: CPUUtilization
+- Statistic: Average
+- Period: 300秒
+- Threshold: 5%
+- Comparison: GreaterThanThreshold
+- Evaluation Periods: 1
+
+学習用としてThresholdを5%に設定し、
+Public EC2へ意図的にCPU負荷を発生させてAlarmの動作を確認した。
+
+```
+通常時
+CPU 約0.3〜0.4%
+→ Alarm: OK
+
+CPU負荷発生
+5分平均CPU > 5%
+→ Alarm: ALARM
+
+負荷停止
+5分平均CPU < 5%
+→ Alarm: OK
+```
+CloudWatch AlarmはリアルタイムのCPU使用率そのものを見るのではなく、
+設定したPeriod・Statistic・Thresholdに基づいてMetricを評価する。
+EC2上で現在のCPU使用率やProcessを確認する場合はtopなどを使用する。
+
+
+
 ## 9. トラブルシューティング
 
 ### cloud-init statusでPermission denied
@@ -318,6 +364,10 @@ ssh \
 - ログではERRORだけでなく caused by や timeout など原因部分まで確認する
 - Session Managerを利用することでPrivate EC2へのSSH Ingressを削除できる
 - 踏み台サーバーを使用せずPrivate EC2を管理できる
+- CloudWatch MetricsによるEC2のCPU使用率確認
+- CloudWatch AlarmによるThreshold監視
+- AlarmのOK → ALARM → OKへの状態遷移を実際に確認
+- CloudWatchによる時系列監視と、topによるリアルタイム確認の違い
 
 ## 11. 構成図
 
