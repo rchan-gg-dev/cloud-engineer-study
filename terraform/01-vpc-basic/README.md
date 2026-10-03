@@ -23,11 +23,26 @@ TerraformによってAWS環境を再現できることを目的とする。
 - Private Subnet B: 10.10.12.0/24
 - Public EC2: Public Subnet A
 - Private EC2: Private Subnet A
-- SSM Interface VPC Endpoint: Private Subnet A
-- SSMMessages Interface VPC Endpoint: Private Subnet A
+- SSM Interface VPC Endpoint: Private Subnet A（任意作成）
+- SSMMessages Interface VPC Endpoint: Private Subnet A（任意作成）
+
+SSM用Interface VPC Endpointは、
+Private EC2からInternetを経由せずSession Managerへ接続する検証のために構築した。
+
+常時起動すると費用が発生するため、
+Terraform変数 `enable_ssm_endpoints` によって作成有無を切り替えられる構成としている。
+
+デフォルトでは作成しない。
+
+```hcl
+variable "enable_ssm_endpoints" {
+  type    = bool
+  default = false
+}
+```
 
 Public / Private Subnetは2AZ分作成しているが、
-現在EC2とVPC Endpointを配置しているのはAZ-aのみ。
+EC2は現在AZ-aに配置している。VPC Endpointを有効化する場合もPrivate Subnet Aに作成する。
 
 ## 3. ネットワーク設計
 
@@ -58,12 +73,15 @@ Private EC2からInternetへ直接通信することはできない。
 ```
 Ingress:
 HTTP TCP/80 0.0.0.0/0
-SSH TCP/22 自宅のグローバルIP/32
 ```
 ```
 Egress:
 All traffic 0.0.0.0/0
 ```
+当初は管理接続用として、自宅のグローバルIPからTCP/22を許可していた。
+Session Managerによる管理接続を確認したため、
+最終構成ではSSH用Ingressを削除した。
+これにより、EC2管理のためにSSHポートをInternetへ公開する必要がない構成とした。
 
 ### Private EC2 Security Group
 ```
@@ -91,10 +109,14 @@ Private EC2からVPC EndpointへのHTTPS通信のみ許可する。
 
 ## 5. Systems Manager構成
 EC2にIAM Roleを付与し、
-AWS管理ポリシー`AmazonSSMManagedInstanceCore `をアタッチする。
+AWS管理ポリシー `AmazonSSMManagedInstanceCore` をアタッチする。
 
-Private EC2はInternet経由ではSystems Managerへ接続できないため、
-以下のInterface VPC Endpointを作成した。
+Public EC2はInternet Gatewayを経由してAWS Systems Managerへ接続する。
+
+Private EC2にはInternet向けRouteを設定していないため、
+Internetを経由してSystems Managerへ接続することはできない。
+
+そのため、Private EC2のSession Manager接続を検証する際には以下のInterface VPC Endpointを使用する。
 ```
 com.amazonaws.ap-southeast-2.ssm
 com.amazonaws.ap-southeast-2.ssmmessages
@@ -113,14 +135,15 @@ enable_dns_support = true
 enable_dns_hostnames = true
 ```
 
-これにより、
-
+これにより通常のAWSサービス名が、
+VPC EndpointのPrivate IPへ名前解決される。
 ```
 ssm.ap-southeast-2.amazonaws.com
 ```
 
-などの通常のAWSサービス名が、
-VPC EndpointのPrivate IPへ名前解決される。
+VPC Endpointは学習・検証時のみ作成できるよう、
+Terraform変数 enable_ssm_endpoints でON/OFFを切り替える。
+コスト削減のためデフォルトでは無効としている。
 
 ## 6. Terraformで管理しているリソース
 ```
@@ -135,71 +158,75 @@ EC2
 IAM Role
 IAM Instance Profile
 IAM Policy Attachment
-SSM Interface VPC Endpoint
-SSMMessages Interface VPC Endpoint
+SSM Interface VPC Endpoint（任意作成）
+SSMMessages Interface VPC Endpoint（任意作成）
+CloudWatch Log Group
+CloudWatch Metric Alarm
+CloudWatch Log Metric Filter
 ```
 
 AMIはSystems Manager Parameter StoreからAmazon Linux 2023の最新のAMI IDを取得する。
+既存EC2についてはParameter Store上の最新AMI更新によって
+意図しないEC2 Replacementが発生しないよう、以下を設定している。
+```hcl
+lifecycle {
+  ignore_changes = [ami]
+}
+```
+新規EC2作成時にはParameter Storeから取得したAMIを使用し、
+既存EC2についてはAMI差分をTerraformによる自動置換対象としない。
+CloudWatch Agentの設定ファイルは以下に保存している。
+```
+config/cloudwatch-agent.json
+```
+
+現時点ではCloudWatch Agentのインストール・設定配布は手動で実施している。
+今後、SSMやCI/CDなどによる自動化を学習する予定。
 
 ## 7. 接続方法
 
 ### Public EC2
-SSHで接続可能
 
-```
-Local PC
-↓ SSH
-Public EC2
-```
-
-`terraform output`からPublic IPを取得する。
-
-```bash
-PUBLIC_IP=$(terraform output -raw public_ec2_public_ip)
-```
-
-Public EC2へSSH接続する。
-
-```bash
-ssh -i ~/.ssh/cloud-study-key.pem ec2-user@"$PUBLIC_IP"
-```
-### Private EC2
 AWS Systems Manager Session Managerを使用する。
 
-```Bash
+```bash
+PUBLIC_INSTANCE_ID=$(terraform output -raw public_ec2_instance_id)
+
 aws ssm start-session \
---target "$PRIVATE_INSTANCE_ID"
+  --target "$PUBLIC_INSTANCE_ID"
 ```
 
-接続後、以下コマンドを実行。
+最終構成ではPublic EC2のSecurity GroupからTCP/22のIngressを削除している。
+
+Public EC2はInternet Gatewayを経由してSystems Managerのサービスエンドポイントへ通信する。
+
+### Private EC2
+Private EC2でSession Manager接続を利用する場合は、
+SSM / SSMMessages Interface VPC Endpointを有効化する。
 
 ```Bash
-whoami
-hostname
-ip -br addr
-```
+PRIVATE_INSTANCE_ID=$(terraform output -raw private_ec2_instance_id)
 
-確認結果
-
-```
-User: ssm-user
-Public IP: なし
-Private IP:10.10.11.x
+aws ssm start-session \
+  --target "$PRIVATE_INSTANCE_ID"
 ```
 
 接続経路
 ```
 Local PC
-↓
+    ↓
 AWS Systems Manager
-↓
+    ↓
 SSM / SSMMessages VPC Endpoint
-↓
+    ↓
 Private EC2
 ```
 
-Public EC2を踏み台として、Private EC2へSSH接続する必要がなくなり、
-ポート22を解放する必要がないためよりセキュアな通信が可能。
+Private EC2にはInternetへのDefault Routeを設定していない。
+そのため、VPC Endpointを無効化している状態では
+Private EC2からSystems Managerへ接続できない。
+VPC Endpointを利用することで、
+Internetや踏み台EC2を経由せずPrivate EC2を管理できることを確認した。
 
 
 ## 8. 動作確認
@@ -262,7 +289,7 @@ Private EC2からInternetへは接続できないことを確認。
 
 ### CloudWatch
 
-Public EC2の`CPUUtilization`をCloudWathc Metricsで確認した。
+Public EC2の`CPUUtilization`をCloudWatch Metricsで確認した。
 
 ```bash
 aws cloudwatch get-metric-statistics \
@@ -304,7 +331,149 @@ CloudWatch AlarmはリアルタイムのCPU使用率そのものを見るので�
 設定したPeriod・Statistic・Thresholdに基づいてMetricを評価する。
 EC2上で現在のCPU使用率やProcessを確認する場合はtopなどを使用する。
 
+### CloudWatch Logs
 
+Public EC2上のApacheログをCloudWatch Logsへ転送するため、
+Amazon CloudWatch Agentを導入した。
+
+IAM Roleには以下のAWS管理ポリシーを追加した。
+
+```
+CloudWatchAgentServerPolicy
+```
+
+CloudWatch Agentでは以下のログを収集する。
+| Local File | CloudWatch Log Group |
+|---|---|
+| /var/log/httpd/access_log	| /terraform-study/httpd/access |
+| /var/log/httpd/error_log	| /terraform-study/httpd/error |
+
+Log GroupのRetentionは7日としている。
+CloudWatch Agent設定は以下に保存している。
+
+```
+config/cloudwatch-agent.json
+```
+
+ApacheへHTTPリクエストを送り、
+ローカルログとCloudWatch Logsの両方に記録されることを確認した。
+
+```Bash
+curl http://localhost
+```
+CloudWatch Logs側では以下のように確認した。
+```Bash
+aws logs tail \
+"/terraform-study/httpd/access" \
+--since 1h
+```
+また、404を意図的に発生させ、
+Logを検索できることを確認した。
+```Bash
+aws logs filter-log-events \
+--log-group-name "/terraform-study/httpd/access" \
+--filter-pattern '404'
+```
+
+### Metric Filter / Custom Metric
+Apacheの error_log から特定エラーを検出するため、
+CloudWatch Logs Metric Filterを作成した。
+今回の学習ではApacheの以下のMessage IDを対象とした。
+```
+AH01264
+```
+
+これは、CGI Scriptが存在しない場合などに出力される
+`script not found or unable to stat`
+というApache内部エラーメッセージの識別IDである。
+
+Metric Filter:
+```
+Log Group:
+/terraform-study/httpd/error
+
+Filter Pattern:
+AH01264
+```
+
+一致したLog Eventを以下のCustom Metricへ変換する。
+```
+Namespace: TerraformStudy/Httpd
+Metric:    HttpdErrorCount
+Value:     1
+```
+
+存在しないCGIへアクセスし、意図的にエラーを発生させた。
+```Bash
+curl -i http://localhost/cgi-bin/cloudwatch-alarm-test.cgi
+```
+
+その結果、
+```
+Apache Error
+↓
+/var/log/httpd/error_log
+↓
+CloudWatch Agent
+↓
+CloudWatch Logs
+↓
+Metric Filter
+↓
+HttpdErrorCount
+```
+という一連の流れを確認した。
+
+### Apache Error Alarm
+Custom Metric `HttpdErrorCount`を監視するCloudWatch AlarmをTerraformで作成した。
+
+監視条件:
+```
+Metric: HttpdErrorCount
+Namespace: TerraformStudy/Httpd
+Statistic: Sum
+Period: 60秒
+Threshold: 1
+Comparison: GreaterThanOrEqualToThreshold
+Evaluation Periods: 1
+```
+
+学習用のためAlarm Actionは無効としている。
+```hcl
+actions_enabled = false
+```
+
+また、ログイベントが存在しない期間についてはAlarmとしない。
+```hcl
+treat_missing_data = "notBreaching"
+```
+
+エラーを意図的に発生させ、
+```
+通常時
+→ OK
+
+AH01264発生
+→ HttpdErrorCount = 1
+→ ALARM
+
+次のPeriodで該当Logなし
+→ Missing DataをNonBreachingとして評価
+→ OK
+```
+という状態遷移を確認した。
+
+これにより、
+```
+Application / Web Server Event
+↓
+Log
+↓
+Metric
+↓
+Alarm
+```
+というCloudWatch監視の基本構造を実際に構築・確認した。
 
 ## 9. トラブルシューティング
 
@@ -320,16 +489,46 @@ cloud-init status
 sudo cloud-init status
 ```
 
-### EC2停止後にterraform planでPublic EC2の再作成が表示された
-Public EC2の課金を止めるため、Public EC2を停止。
-Public EC2を停止した状態で`terraform plan`を実行したところ、
-Public EC2のReplacementが表示された。
+### 最新AMIとの差分によってEC2 Replacementが表示された
 
-EC2停止によって自動割り当て Public IPが外れ、
-Terraform Configurationとの差分として検出されたためだった。
+Amazon Linux 2023のAMI IDをSystems Manager Parameter Storeから動的に取得していた。
 
-Public EC2を再起動してから、`terraform plan`を実行すると、
-不要なReplacementは表示されなくなった。
+```hcl
+data "aws_ssm_parameter" "al2023_ami" {
+  name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
+}
+```
+EC2作成後にParameter Store上の最新AMIが更新されたため、
+Terraformから見るとConfigurationで指定されるAMIと既存EC2のAMIに差分が発生した。
+AMI属性の変更はEC2 Replacementになるため、
+terraform plan でEC2再作成が表示された。
+今回の学習環境では、AMI更新のたびにEC2を自動置換しないよう以下を追加した。
+```hcl
+lifecycle {
+  ignore_changes = [ami]
+}
+```
+
+これにより、
+- 新規EC2作成時は最新AMIを利用する
+- 既存EC2についてはAMI更新だけを理由にReplacementしない
+という動作とした。
+本番環境ではAMI更新方法やPatch Managementを別途設計する必要がある。
+
+### EC2停止・起動後にPublic IPとTerraform Stateに差分が発生した
+
+Public EC2を停止・起動すると、自動割り当てPublic IPv4 Addressが変更された。
+
+そのため、Terraform Stateに保存されていたPublic IPと
+AWS上の現在値に差分が発生した。
+
+実際のInfrastructureを変更せずStateのみ最新化する場合は、
+以下を利用できることを確認した。
+```bash
+terraform apply -refresh-only
+```
+terraform plan はRemote Infrastructureを読み取って差分を表示するが、
+Planを実行しただけではState File自体は更新されないことも確認した。
 
 ### ProxyJumpでPrivate EC2へ接続できない
 `ssh -J`を使用したところ、
@@ -368,6 +567,19 @@ ssh \
 - CloudWatch AlarmによるThreshold監視
 - AlarmのOK → ALARM → OKへの状態遷移を実際に確認
 - CloudWatchによる時系列監視と、topによるリアルタイム確認の違い
+- CloudWatch AgentによるOS / Apacheログの収集
+- CloudWatch LogsのLog GroupとLog Streamの役割
+- Apacheのaccess_logとerror_logの違い
+- Metric FilterによるLog EventからCustom Metricへの変換
+- CloudWatch AlarmによるCustom Metric監視
+- MetricではAverageやSumなど監視対象に応じてStatisticを選ぶ必要がある
+- `treat_missing_data = "notBreaching"` によるMissing Dataの扱い
+- ApacheのMessage IDとHTTP Status Codeは別の概念である
+- 特定エラーだけを監視する場合と、広い条件で監視する場合の違い
+- TerraformのData Sourceが変化すると既存Resourceとの差分が発生することがある
+- `lifecycle.ignore_changes` によってTerraformが管理する差分を制御できる
+- `terraform apply -refresh-only` によりInfrastructureを変更せずStateを更新できる
+- Session Managerへ移行することでPublic EC2のSSH TCP/22も削除できる
 
 ## 11. 構成図
 

@@ -1,4 +1,6 @@
 resource "aws_vpc_endpoint" "ssm" {
+  count = var.enable_ssm_endpoints ? 1 : 0
+
   vpc_id            = aws_vpc.main.id
   service_name      = "com.amazonaws.ap-southeast-2.ssm"
   vpc_endpoint_type = "Interface"
@@ -13,12 +15,15 @@ resource "aws_vpc_endpoint" "ssm" {
 
   private_dns_enabled = true
 
+
   tags = {
     Name = "terraform-study-ssm-endpoint"
   }
 }
 
 resource "aws_vpc_endpoint" "ssmmessages" {
+  count = var.enable_ssm_endpoints ? 1 : 0
+
   vpc_id            = aws_vpc.main.id
   service_name      = "com.amazonaws.ap-southeast-2.ssmmessages"
   vpc_endpoint_type = "Interface"
@@ -32,6 +37,7 @@ resource "aws_vpc_endpoint" "ssmmessages" {
   ]
 
   private_dns_enabled = true
+
 
   tags = {
     Name = "terraform-study-ssmmessages-endpoint"

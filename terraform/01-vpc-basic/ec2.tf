@@ -20,6 +20,10 @@ resource "aws_instance" "public" {
   user_data                   = file("${path.module}/user_data.sh")
   user_data_replace_on_change = true
 
+  lifecycle {
+    ignore_changes = [ami]
+  }
+
   tags = {
     Name = "terraform-study-public-ec2"
   }
@@ -39,6 +43,10 @@ resource "aws_instance" "private" {
   key_name = "cloud-study-key"
 
   iam_instance_profile = aws_iam_instance_profile.ssm.name
+
+  lifecycle {
+    ignore_changes = [ami]
+  }
 
   tags = {
     Name = "terraform-study-private-ec2"
